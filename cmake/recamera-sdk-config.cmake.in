@@ -1,0 +1,28 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/recamera-sdk-targets.cmake")
+
+# The public SDK package contains all open-source wrapper code and libraries.
+# Final application linking still needs the board SDK's proprietary CVI shared
+# libraries. Locate those from the same SG200X_SDK_PATH used by the toolchain.
+if(DEFINED SG200X_SDK_PATH)
+    set(_recamera_sg200x_sdk "${SG200X_SDK_PATH}")
+elseif(DEFINED ENV{SG200X_SDK_PATH})
+    set(_recamera_sg200x_sdk "$ENV{SG200X_SDK_PATH}")
+endif()
+if(NOT _recamera_sg200x_sdk)
+    set(recamera-sdk_FOUND FALSE)
+    set(recamera-sdk_NOT_FOUND_MESSAGE
+        "Set SG200X_SDK_PATH to the Sophgo SG2002W board SDK before find_package(recamera-sdk)")
+    return()
+endif()
+
+set(_recamera_sysroot
+    "${_recamera_sg200x_sdk}/buildroot-2021.05/output/cvitek_CV181X_musl_riscv64/host/riscv64-buildroot-linux-musl/sysroot")
+set_property(TARGET recamera::sdk APPEND PROPERTY INTERFACE_LINK_DIRECTORIES
+    "${_recamera_sysroot}/usr/lib"
+    "${_recamera_sg200x_sdk}/cvi_mpi/lib"
+    "${_recamera_sg200x_sdk}/cvi_mpi/lib/3rd"
+    "${_recamera_sg200x_sdk}/install/soc_sg2002_recamera_emmc/tpu_musl_riscv64/cvitek_tpu_sdk/lib"
+    "${_recamera_sg200x_sdk}/install/soc_sg2002_recamera_emmc/rootfs/mnt/system/lib")
+check_required_components(recamera-sdk)

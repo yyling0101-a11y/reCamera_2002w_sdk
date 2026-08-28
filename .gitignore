@@ -1,0 +1,13 @@
+# Local build and generated installation output
+/build*/
+/install/
+
+# IDE and local tooling files
+.cache/
+.vscode/
+.idea/
+compile_commands.json
+
+# OS metadata
+.DS_Store
+Thumbs.db
