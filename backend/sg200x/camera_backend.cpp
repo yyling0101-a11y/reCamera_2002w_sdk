@@ -34,6 +34,7 @@ bool CameraBackend::open(const CameraConfig& config, int gop, Error& error) {
         return false;
     }
     if (config.width <= 0 || config.height <= 0 || config.fps <= 0 || config.fps > 120 ||
+        config.rawWidth < 0 || config.rawHeight < 0 || config.rawFps < 0 || config.rawFps > 120 ||
         config.queueDepth == 0 || config.queueDepth > 16 || gop <= 0) {
         setError(error, ErrorCode::InvalidArgument, "invalid width, height, fps, or GOP");
         return false;
@@ -46,14 +47,24 @@ bool CameraBackend::open(const CameraConfig& config, int gop, Error& error) {
     }
 
     video_ch_param_t rawParam{};
-    rawParam.format = VIDEO_FORMAT_NV21;
-    rawParam.width = static_cast<uint32_t>(config.width);
-    rawParam.height = static_cast<uint32_t>(config.height);
-    rawParam.fps = static_cast<uint8_t>(config.fps);
+    if (config.rawFormat != PixelFormat::NV21 && config.rawFormat != PixelFormat::RGB888) {
+        setError(error, ErrorCode::Unsupported, "raw output supports only NV21 or RGB888");
+        return false;
+    }
+    rawParam.format = config.rawFormat == PixelFormat::RGB888 ? VIDEO_FORMAT_RGB888 : VIDEO_FORMAT_NV21;
+    rawParam.width = static_cast<uint32_t>(config.rawWidth > 0 ? config.rawWidth : config.width);
+    rawParam.height = static_cast<uint32_t>(config.rawHeight > 0 ? config.rawHeight : config.height);
+    rawParam.fps = static_cast<uint8_t>(config.rawFps > 0 ? config.rawFps : config.fps);
     rc = setupVideo(static_cast<video_ch_index_t>(rawChannel_), &rawParam);
     if (rc != 0) {
         setError(error, ErrorCode::BackendError, "setupVideo raw channel failed");
         return false;
+    }
+    APP_PARAM_VPSS_CFG_T* vpss = app_ipcam_Vpss_Param_Get();
+    if (vpss != nullptr && vpss->u32GrpCnt > 0) {
+        auto& rate = vpss->astVpssGrpCfg[0].astVpssChnAttr[rawChannel_].stFrameRate;
+        rate.s32SrcFrameRate = config.fps;
+        rate.s32DstFrameRate = rawParam.fps;
     }
 
     video_ch_param_t param{};
@@ -65,6 +76,11 @@ bool CameraBackend::open(const CameraConfig& config, int gop, Error& error) {
     if (rc != 0) {
         setError(error, ErrorCode::BackendError, "setupVideo failed");
         return false;
+    }
+    if (vpss != nullptr && vpss->u32GrpCnt > 0) {
+        auto& rate = vpss->astVpssGrpCfg[0].astVpssChnAttr[channel_].stFrameRate;
+        rate.s32SrcFrameRate = config.fps;
+        rate.s32DstFrameRate = config.fps;
     }
 
     APP_PARAM_VENC_CTX_S* venc = app_ipcam_Venc_Param_Get();
@@ -104,6 +120,10 @@ bool CameraBackend::start(Error& error) {
     }
     const int rc = startVideo();
     if (rc != 0) {
+        // startVideo initializes several media modules in sequence. A later
+        // failure can leave VI/VPSS resources allocated unless explicitly
+        // rolled back, even though running_ was never set.
+        deinitVideo();
         setError(error, ErrorCode::BackendError, "startVideo failed");
         return false;
     }
@@ -326,7 +346,7 @@ int CameraBackend::dispatchRaw(void* data) {
         state->cv.notify_one();
     });
     pushRaw(VideoFrame(static_cast<int>(source.u32Width), static_cast<int>(source.u32Height),
-                       PixelFormat::NV21, source.u64PTS, planes, std::move(lease)));
+                       config_.rawFormat, source.u64PTS, planes, std::move(lease)));
 
     {
         std::unique_lock<std::mutex> lock(state->mutex);

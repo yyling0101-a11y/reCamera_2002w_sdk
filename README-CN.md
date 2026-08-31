@@ -3,7 +3,7 @@
 该 SDK 提供 C++17 摄像头、认证 RTSP、WebRTC 和 ONVIF 服务
 适用于 reCamera 2002W。相机采集和传输保持分离，因此
 应用程序可以检查帧、执行推理或其他处理，再选择要发布的编码帧。
-当前阶段不包含 AI 和音频封装。
+SG2002 TPU 已提供通用 CVIMODEL tensor 接口；音频尚未封装。
 
 所需 SSCMA Sophgo 媒体源码已经内置在 `third_party/sscma`，来源提交为
 `c705d180571e11ff41cd56098c0d95734daff521`，不需要在同级目录再 clone
@@ -214,3 +214,37 @@ VENC 工作线程。它必须快速返回，并在之后复制所需的任何字
 
 看 [ARCHITECTURE.md](ARCHITECTURE.md) 对于依赖关系和生命周期模型
 [MIGRATION.md](MIGRATION.md) 用于从 `video_demo`。
+
+## SG2002 TPU 推理
+
+SDK 直接包装设备固件已有的 `libcviruntime.so`，应用只需要包含本 SDK 的头文件：
+
+```cpp
+#include <recamera/ai.hpp>
+
+recamera::Model model;
+if (!model.load("/path/to/model.cvimodel")) {
+    // model.lastError().message
+}
+
+const auto &input = model.inputs().at(0);
+std::vector<std::uint8_t> data(input.byteSize);
+// 按模型的输入契约完成 resize、颜色转换、归一化和量化后填入 data。
+model.setInput(0, data);
+model.run();
+recamera::Tensor output = model.output(0);
+```
+
+`Model` 是通用 tensor 推理接口，不猜测模型的预处理和后处理规则。输入字节数必须与
+`TensorInfo::byteSize` 完全一致；量化参数可从 `quantizationScale` 和
+`quantizationZeroPoint` 获取。
+
+`examples/model_inference` 是完整的 YOLOv8 管线：VPSS CH1 按模型尺寸输出 RGB888，
+TPU 执行推理和 YOLOv8 后处理，硬件 Region OSD 将检测框挂到 1080p VENC CH2，编码帧
+由 WebRTC 发布。设备端运行：
+
+```bash
+./recamera_model_inference ./yolov8n.cvimodel 0.5 8080
+```
+
+浏览器打开 `http://设备IP:8080/live0`。

@@ -18,6 +18,12 @@ struct CameraConfig
     int height = 1080;
     int fps = 30;
     std::size_t queueDepth = 2;
+    // Optional independent VPSS output used by read(). Zero values inherit
+    // the encoded stream settings. RGB888 is useful for model input.
+    int rawWidth = 0;
+    int rawHeight = 0;
+    int rawFps = 0;
+    PixelFormat rawFormat = PixelFormat::NV21;
 };
 
 class Camera

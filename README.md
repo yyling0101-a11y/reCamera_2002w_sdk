@@ -3,8 +3,8 @@
 The SDK provides C++17 Camera, authenticated RTSP, WebRTC, and ONVIF services
 for reCamera 2002W. Camera capture and transports remain separate so an
 application can inspect a frame, perform inference or other work, and then
-choose which encoded frames to publish. AI and Audio are not part of this
-phase.
+choose which encoded frames to publish. The SG2002 TPU has a generic CVIMODEL
+tensor API; audio is not yet wrapped.
 
 The required SSCMA Sophgo media wrapper source is vendored under
 `third_party/sscma` from upstream commit
@@ -217,3 +217,36 @@ VENC worker thread. It must return quickly and copy any bytes it needs later.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the dependency and lifetime model and
 [MIGRATION.md](MIGRATION.md) for conversion from `video_demo`.
+
+## SG2002 TPU inference
+
+Include only the SDK's public header and run CVIMODEL files through the
+firmware-provided `libcviruntime.so`:
+
+```cpp
+#include <recamera/ai.hpp>
+
+recamera::Model model;
+if (!model.load("/path/to/model.cvimodel")) {
+    // model.lastError().message
+}
+
+const auto &input = model.inputs().at(0);
+std::vector<std::uint8_t> data(input.byteSize);
+// Apply the model's documented resize, color, normalization and quantization.
+model.setInput(0, data);
+model.run();
+recamera::Tensor output = model.output(0);
+```
+
+`Model` is a generic tensor runner and deliberately does not guess a model's
+pre/post-processing contract. `examples/model_inference` is a complete YOLOv8
+pipeline: VPSS CH1 emits model-sized RGB888 frames, the TPU runs inference and
+YOLOv8 post-processing, a hardware Region overlay draws detections on the
+1080p VENC CH2 stream, and WebRTC publishes the encoded frames.
+
+```bash
+./recamera_model_inference ./yolov8n.cvimodel 0.5 8080
+```
+
+Open `http://device-ip:8080/live0` in a browser.

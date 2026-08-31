@@ -60,9 +60,11 @@ add_subdirectory(third_party/libdatachannel EXCLUDE_FROM_ALL)
 option(RECAMERA_BUILD_EXAMPLES "Build SDK examples" ON)
 
 add_library(recamera_sdk SHARED
+    src/ai.cpp
     src/camera.cpp
     src/frame.cpp
     src/onvif.cpp
+    src/osd.cpp
     src/rtsp.cpp
     src/webrtc.cpp
     src/status.cpp
@@ -88,6 +90,7 @@ target_link_libraries(recamera_sdk
         "$<BUILD_INTERFACE:${OPENSSL_CRYPTO_LIBRARY}>"
         "$<INSTALL_INTERFACE:ssl>"
         "$<INSTALL_INTERFACE:crypto>"
+        cviruntime
     PRIVATE sophgo pthread datachannel-static
 )
 set_target_properties(recamera_sdk PROPERTIES
@@ -101,6 +104,7 @@ if(RECAMERA_BUILD_EXAMPLES)
     add_subdirectory(examples/camera_process_rtsp)
     add_subdirectory(examples/camera_process_webrtc)
     add_subdirectory(examples/camera_onvif_rtsp)
+    add_subdirectory(examples/model_inference)
 endif()
 
 install(TARGETS recamera_sdk
