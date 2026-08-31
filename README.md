@@ -1,10 +1,10 @@
 # reCamera C++ SDK (SG2002W)
 
-The SDK provides C++17 Camera, authenticated RTSP, WebRTC, and ONVIF services
-for reCamera 2002W. Camera capture and transports remain separate so an
+The SDK provides C++17 Camera, authenticated RTSP, WebRTC, ONVIF, audio, and
+fill-light APIs for reCamera 2002W. Camera capture and transports remain separate so an
 application can inspect a frame, perform inference or other work, and then
 choose which encoded frames to publish. The SG2002 TPU has a generic CVIMODEL
-tensor API; audio is not yet wrapped.
+tensor API.
 
 The required SSCMA Sophgo media wrapper source is vendored under
 `third_party/sscma` from upstream commit
@@ -250,3 +250,40 @@ YOLOv8 post-processing, a hardware Region overlay draws detections on the
 ```
 
 Open `http://device-ip:8080/live0` in a browser.
+
+## Microphone, speaker, and fill light
+
+The audio API uses the onboard microphone and speaker output. Its defaults
+match the documented device format: 16 kHz, mono, S16_LE.
+
+```cpp
+#include <recamera/audio.hpp>
+
+recamera::AudioConfig config{16000, 1, 1024};
+std::vector<std::int16_t> pcm(config.sampleRate * config.channels);
+
+recamera::Microphone microphone;
+microphone.open(config);
+microphone.read(pcm.data(), config.sampleRate);
+microphone.close();
+
+recamera::Speaker speaker;
+speaker.open(config);
+speaker.write(pcm.data(), config.sampleRate);
+speaker.drain();
+```
+
+Fill-light brightness ranges from 0 to 255, with `on()` and `off()` helpers:
+
+```cpp
+#include <recamera/light.hpp>
+
+recamera::FillLight light;
+light.setBrightness(64);
+light.off();
+```
+
+`examples/audio_loopback` records three seconds, prints peak/RMS levels, and
+plays the capture through the speaker. `examples/fill_light` turns the light on
+for two seconds. The device endpoints and formats follow the
+[Seeed reCamera 2002 hardware Wiki](https://wiki.seeedstudio.com/recamera_2002_series_hardware_and_specs/).

@@ -61,10 +61,12 @@ option(RECAMERA_BUILD_EXAMPLES "Build SDK examples" ON)
 
 add_library(recamera_sdk SHARED
     src/ai.cpp
+    src/audio.cpp
     src/camera.cpp
     src/frame.cpp
     src/onvif.cpp
     src/osd.cpp
+    src/light.cpp
     src/rtsp.cpp
     src/webrtc.cpp
     src/status.cpp
@@ -91,6 +93,7 @@ target_link_libraries(recamera_sdk
         "$<INSTALL_INTERFACE:ssl>"
         "$<INSTALL_INTERFACE:crypto>"
         cviruntime
+        asound
     PRIVATE sophgo pthread datachannel-static
 )
 set_target_properties(recamera_sdk PROPERTIES
@@ -105,6 +108,8 @@ if(RECAMERA_BUILD_EXAMPLES)
     add_subdirectory(examples/camera_process_webrtc)
     add_subdirectory(examples/camera_onvif_rtsp)
     add_subdirectory(examples/model_inference)
+    add_subdirectory(examples/audio_loopback)
+    add_subdirectory(examples/fill_light)
 endif()
 
 install(TARGETS recamera_sdk

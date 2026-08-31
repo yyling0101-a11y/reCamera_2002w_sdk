@@ -1,9 +1,9 @@
 # reCamera C++ SDK (SG2002W)
 
-该 SDK 提供 C++17 摄像头、认证 RTSP、WebRTC 和 ONVIF 服务
+该 SDK 提供 C++17 摄像头、认证 RTSP、WebRTC、ONVIF、音频和补光灯接口，
 适用于 reCamera 2002W。相机采集和传输保持分离，因此
 应用程序可以检查帧、执行推理或其他处理，再选择要发布的编码帧。
-SG2002 TPU 已提供通用 CVIMODEL tensor 接口；音频尚未封装。
+SG2002 TPU 已提供通用 CVIMODEL tensor 接口。
 
 所需 SSCMA Sophgo 媒体源码已经内置在 `third_party/sscma`，来源提交为
 `c705d180571e11ff41cd56098c0d95734daff521`，不需要在同级目录再 clone
@@ -248,3 +248,39 @@ TPU 执行推理和 YOLOv8 后处理，硬件 Region OSD 将检测框挂到 1080
 ```
 
 浏览器打开 `http://设备IP:8080/live0`。
+
+## 麦克风、喇叭与补光灯
+
+音频接口使用板载麦克风和喇叭输出，默认采用设备官方配置：16 kHz、单声道、
+S16_LE。调用方只需包含本 SDK 头文件：
+
+```cpp
+#include <recamera/audio.hpp>
+
+recamera::AudioConfig config{16000, 1, 1024};
+std::vector<std::int16_t> pcm(config.sampleRate * config.channels);
+
+recamera::Microphone microphone;
+microphone.open(config);
+microphone.read(pcm.data(), config.sampleRate); // 阻塞读取一秒
+microphone.close();
+
+recamera::Speaker speaker;
+speaker.open(config);
+speaker.write(pcm.data(), config.sampleRate);
+speaker.drain();
+```
+
+补光灯支持 0–255 亮度以及快捷开关：
+
+```cpp
+#include <recamera/light.hpp>
+
+recamera::FillLight light;
+light.setBrightness(64);
+light.off();
+```
+
+`examples/audio_loopback` 会录音三秒并从喇叭回放，同时打印峰值与 RMS；
+`examples/fill_light` 会点亮补光灯两秒后关闭。接口参数和硬件节点依据
+[Seeed reCamera 2002 硬件 Wiki](https://wiki.seeedstudio.com/recamera_2002_series_hardware_and_specs/)。

@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.16)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(recamera_fill_light_example LANGUAGES CXX)
+    find_package(recamera-sdk CONFIG REQUIRED)
+endif()
+set(CMAKE_SKIP_RPATH OFF)
+add_executable(recamera_fill_light main.cpp)
+target_compile_features(recamera_fill_light PRIVATE cxx_std_17)
+target_link_libraries(recamera_fill_light PRIVATE recamera::sdk)
+set_target_properties(recamera_fill_light PROPERTIES
+    SKIP_BUILD_RPATH FALSE BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "$ORIGIN")

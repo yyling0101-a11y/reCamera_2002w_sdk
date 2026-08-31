@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.16)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(recamera_audio_loopback_example LANGUAGES CXX)
+    find_package(recamera-sdk CONFIG REQUIRED)
+endif()
+set(CMAKE_SKIP_RPATH OFF)
+add_executable(recamera_audio_loopback main.cpp)
+target_compile_features(recamera_audio_loopback PRIVATE cxx_std_17)
+target_link_libraries(recamera_audio_loopback PRIVATE recamera::sdk)
+set_target_properties(recamera_audio_loopback PROPERTIES
+    SKIP_BUILD_RPATH FALSE BUILD_WITH_INSTALL_RPATH TRUE INSTALL_RPATH "$ORIGIN")
