@@ -39,6 +39,91 @@ install/
 └── share/recamera-sdk/{examples,toolchain,licenses}/
 ```
 
+## 在 reCamera 上部署 ONVIF/海康 NVR 服务
+
+`examples/camera_onvif_rtsp` 是部署用的 Camera → H.264 RTSP → ONVIF
+程序。它默认监听 ONVIF HTTP `8000`、WS-Discovery UDP `3702` 和 RTSP
+`8554`，RTSP 路径为 `/onvif`。在将其接入海康 NVR 前，应先修改示例中的
+RTSP/ONVIF 用户名和密码，并重新构建；不要把真实凭据提交进仓库。
+
+### 旧固件的兼容构建
+
+部分生产固件的 `libcviruntime.so` 不包含较新 AI 接口需要的
+`CVI_NN_*` 符号。只部署 ONVIF/RTSP 时，使用下面的精简构建，避免 AI、音频、
+OSD 和补光灯模块造成动态加载失败：
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DRECAMERA_ENABLE_EXTENDED_APIS=OFF
+cmake --build build -j
+```
+
+部署需要的三个产物是：
+
+```text
+build/examples/camera_onvif_rtsp/recamera_camera_onvif_rtsp
+build/librecamera_sdk.so.0.1.0
+build/third_party/cvi_rtsp/libcvi_rtsp.so
+```
+
+其中 `libcvi_rtsp.so` 含 H.264 Annex-B NAL 拆分修复：一个 VENC 包里的
+SPS、PPS 和 IDR 会分别送给 Live555。缺失该库时，海康常显示预览空白，且
+日志或客户端会出现 `non-existing PPS`、未知分辨率或抓图失败。
+
+### 上传、备份和启动
+
+以下命令以 `root@设备IP` 为例。先上传到暂存目录；确认文件齐全后再停服务。
+不要覆盖 `/mnt/system/usr/lib/libcvi_rtsp.so`，该文件属于固件；将修复库放在
+`/root/libcvi_rtsp.so`，并通过 `LD_LIBRARY_PATH` 优先加载它。
+
+```bash
+ssh root@设备IP 'mkdir -p /root/onvif-stage'
+scp build/examples/camera_onvif_rtsp/recamera_camera_onvif_rtsp \
+    build/librecamera_sdk.so.0.1.0 \
+    build/third_party/cvi_rtsp/libcvi_rtsp.so \
+    root@设备IP:/root/onvif-stage/
+
+ssh root@设备IP
+stamp=$(date +%Y%m%d%H%M%S)
+pid=$(pidof recamera_camera_onvif_rtsp) && kill -TERM "$pid"
+sleep 3
+mv /root/recamera_camera_onvif_rtsp /root/recamera_camera_onvif_rtsp.bak-$stamp
+mv /root/librecamera_sdk.so.0 /root/librecamera_sdk.so.0.bak-$stamp
+[ ! -e /root/libcvi_rtsp.so ] || mv /root/libcvi_rtsp.so /root/libcvi_rtsp.so.bak-$stamp
+mv /root/onvif-stage/recamera_camera_onvif_rtsp /root/
+mv /root/onvif-stage/librecamera_sdk.so.0.1.0 /root/librecamera_sdk.so.0
+ln -sfn librecamera_sdk.so.0 /root/librecamera_sdk.so
+mv /root/onvif-stage/libcvi_rtsp.so /root/
+chmod 700 /root/recamera_camera_onvif_rtsp /root/librecamera_sdk.so.0 /root/libcvi_rtsp.so
+
+LD_LIBRARY_PATH=/root:/mnt/system/usr/lib:/mnt/system/usr/lib/3rd:/mnt/system/lib \
+  nohup /root/recamera_camera_onvif_rtsp \
+  >>/userdata/recamera_sdk/onvif-sdk.log 2>&1 </dev/null &
+```
+
+`LD_LIBRARY_PATH` 不能省略：设备的 `libini.so` 位于
+`/mnt/system/usr/lib/3rd`，`libcviruntime.so` 位于 `/mnt/system/lib`。程序启动后
+确认加载的是 `/root/libcvi_rtsp.so`，而不是固件原版库：
+
+```bash
+pid=$(pidof recamera_camera_onvif_rtsp)
+ss -ltnup | grep -E ':(8000|8554|3702)'
+grep -E 'librecamera_sdk|libcvi_rtsp' /proc/$pid/maps
+tail -n 50 /userdata/recamera_sdk/onvif-sdk.log
+```
+
+海康 ONVIF 通道应配置管理端口 `8000`、用户名/密码与示例一致。验收时，NVR
+代理 RTSP 应能报告 H.264 分辨率和帧率，抓图接口应返回 JPEG：
+
+```bash
+curl --digest -u 'NVR用户:NVR密码' \
+  http://NVR_IP/ISAPI/ContentMgmt/InputProxy/channels/通道号/status
+curl --digest -u 'NVR用户:NVR密码' \
+  -o snapshot.jpg http://NVR_IP/ISAPI/Streaming/channels/代理通道号/picture
+file snapshot.jpg
+```
+
 独立用户工程只需要查找安装后的 SDK：
 
 ```cmake

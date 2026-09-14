@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+app_root=/opt/recamera-onvif
+export LD_LIBRARY_PATH="$app_root/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$app_root/bin/recamera_camera_onvif_rtsp" "$@"

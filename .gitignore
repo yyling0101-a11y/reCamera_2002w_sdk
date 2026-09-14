@@ -1,5 +1,5 @@
 # Local build and generated installation output
-/build*/
+/build/
 /install/
 
 # IDE and local tooling files
@@ -11,3 +11,21 @@ compile_commands.json
 # OS metadata
 .DS_Store
 Thumbs.db
+
+artifacts
+
+# Local review/delivery documents; intentionally excluded from repository.
+/docx/
+
+# Downloaded/generated face-analysis models and compiler intermediates.
+/examples/face_emotion_webrtc/models/*
+!/examples/face_emotion_webrtc/models/README.md
+!/examples/face_emotion_webrtc/models/reference/
+/examples/face_emotion_webrtc/models/reference/*
+!/examples/face_emotion_webrtc/models/reference/SHA256SUMS
+
+# Package staging payloads are copied from build/ or the device sysroot.
+/packaging/**/lib/
+/packaging/**/bin/recamera_camera_onvif_rtsp
+/packaging/*.deb
+/packaging/*.ipk

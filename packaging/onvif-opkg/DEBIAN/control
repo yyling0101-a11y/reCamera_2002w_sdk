@@ -1,0 +1,7 @@
+Package: recamera-onvif
+Version: 0.2.4
+Architecture: riscv64
+Maintainer: Seeed Studio <support@seeed.cc>
+Description: ONVIF and RTSP gateway for reCamera 2002W
+ Exposes the reCamera video pipeline through ONVIF discovery and authenticated RTSP
+ so NVRs, VMS platforms, and Home Assistant can add the camera directly.

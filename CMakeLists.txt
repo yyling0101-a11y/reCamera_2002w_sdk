@@ -58,15 +58,13 @@ set(OPENSSL_CRYPTO_LIBRARY "${SYSROOT}/usr/lib/libcrypto.so" CACHE FILEPATH "" F
 add_subdirectory(third_party/libdatachannel EXCLUDE_FROM_ALL)
 
 option(RECAMERA_BUILD_EXAMPLES "Build SDK examples" ON)
+option(RECAMERA_ENABLE_EXTENDED_APIS
+    "Build AI, audio, OSD, and fill-light APIs that require the current firmware runtime" ON)
 
-add_library(recamera_sdk SHARED
-    src/ai.cpp
-    src/audio.cpp
+set(RECAMERA_SDK_SOURCES
     src/camera.cpp
     src/frame.cpp
     src/onvif.cpp
-    src/osd.cpp
-    src/light.cpp
     src/rtsp.cpp
     src/webrtc.cpp
     src/status.cpp
@@ -74,6 +72,16 @@ add_library(recamera_sdk SHARED
     backend/sg200x/rtsp_backend.cpp
     backend/sg200x/webrtc_backend.cpp
 )
+if(RECAMERA_ENABLE_EXTENDED_APIS)
+    list(APPEND RECAMERA_SDK_SOURCES
+        src/ai.cpp
+        src/audio.cpp
+        src/osd.cpp
+        src/light.cpp
+    )
+endif()
+
+add_library(recamera_sdk SHARED ${RECAMERA_SDK_SOURCES})
 add_library(recamera::sdk ALIAS recamera_sdk)
 set_target_properties(recamera_sdk PROPERTIES EXPORT_NAME sdk)
 
@@ -107,9 +115,12 @@ if(RECAMERA_BUILD_EXAMPLES)
     add_subdirectory(examples/camera_process_rtsp)
     add_subdirectory(examples/camera_process_webrtc)
     add_subdirectory(examples/camera_onvif_rtsp)
-    add_subdirectory(examples/model_inference)
-    add_subdirectory(examples/audio_loopback)
-    add_subdirectory(examples/fill_light)
+    if(RECAMERA_ENABLE_EXTENDED_APIS)
+        add_subdirectory(examples/model_inference)
+        add_subdirectory(examples/face_emotion_webrtc)
+        add_subdirectory(examples/audio_loopback)
+        add_subdirectory(examples/fill_light)
+    endif()
 endif()
 
 install(TARGETS recamera_sdk

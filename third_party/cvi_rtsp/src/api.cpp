@@ -180,7 +180,42 @@ int CVI_RTSP_WriteFrame(CVI_RTSP_CTX *ctx, CVI_RTSP_TRACK track, CVI_RTSP_DATA *
     CVI_ServerMediaSubsession *smss = static_cast<CVI_ServerMediaSubsession *>(track);
 
     for (unsigned int i = 0; i < data->blockCnt; i++) {
-        smss->writeData(data->dataPtr[i], data->dataLen[i]);
+        uint8_t* const block = data->dataPtr[i];
+        const uint32_t length = data->dataLen[i];
+        if (block == nullptr || length == 0) continue;
+
+        // A VENC pack can contain an Annex-B access unit with several NALs
+        // (notably SPS, PPS, and IDR).  H264VideoStreamDiscreteFramer expects
+        // one NAL per input frame.  Passing the whole pack as one frame makes
+        // Live555 advertise/send the SPS but lose the PPS, which leaves strict
+        // clients such as Hikvision NVRs unable to decode the stream.
+        uint32_t offset = 0;
+        bool foundStartCode = false;
+        while (offset + 3 < length) {
+            uint32_t start = offset;
+            while (start + 3 < length &&
+                   !(block[start] == 0 && block[start + 1] == 0 &&
+                     (block[start + 2] == 1 ||
+                      (start + 3 < length && block[start + 2] == 0 && block[start + 3] == 1)))) {
+                ++start;
+            }
+            if (start + 3 >= length) break;
+            foundStartCode = true;
+            const uint32_t prefix = block[start + 2] == 1 ? 3 : 4;
+            const uint32_t nalBegin = start + prefix;
+            uint32_t next = nalBegin;
+            while (next + 3 < length &&
+                   !(block[next] == 0 && block[next + 1] == 0 &&
+                     (block[next + 2] == 1 ||
+                      (next + 3 < length && block[next + 2] == 0 && block[next + 3] == 1)))) {
+                ++next;
+            }
+            const uint32_t nalEnd = next + 3 < length ? next : length;
+            if (nalEnd > nalBegin) smss->writeData(block + nalBegin, nalEnd - nalBegin);
+            if (next + 3 >= length) break;
+            offset = next;
+        }
+        if (!foundStartCode) smss->writeData(block, length);
     }
 
     return 0;

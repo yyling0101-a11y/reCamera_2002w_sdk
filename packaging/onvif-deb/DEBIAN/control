@@ -1,0 +1,9 @@
+Package: recamera-onvif
+Version: 0.1.0+20260908
+Section: video
+Priority: optional
+Architecture: riscv64
+Maintainer: reCamera SDK Contributors <support@seeed.cc>
+Description: ONVIF and RTSP camera example for reCamera 2002W
+ Bundling the matching reCamera SDK and modified CVI RTSP library.
+ This package requires the reCamera 2002W SG2002 firmware libraries.

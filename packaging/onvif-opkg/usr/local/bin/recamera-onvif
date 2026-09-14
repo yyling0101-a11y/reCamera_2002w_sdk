@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+# Keep the matching SG2002W CVI multimedia SDK bundled with this application:
+# the device firmware can expose a different CVI ABI. Firmware paths remain a
+# fallback for platform libraries that are not private to this package.
+export LD_LIBRARY_PATH="/usr/local/lib/recamera-onvif:/mnt/system/usr/lib:/mnt/system/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec /usr/local/lib/recamera-onvif/recamera_camera_onvif_rtsp "$@"

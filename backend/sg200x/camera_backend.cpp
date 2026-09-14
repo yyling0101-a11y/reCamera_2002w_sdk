@@ -8,6 +8,7 @@
 extern "C" {
 #include "app_ipcam_venc.h"
 #include "cvi_sys.h"
+#include "app_ipcam_sys.h"
 #include "cvi_venc.h"
 #include "video.h"
 }
@@ -60,6 +61,13 @@ bool CameraBackend::open(const CameraConfig& config, int gop, Error& error) {
         setError(error, ErrorCode::BackendError, "setupVideo raw channel failed");
         return false;
     }
+    APP_PARAM_SYS_CFG_S* sys = app_ipcam_Sys_Param_Get();
+    // VI -> VPSS -> VENC may hold buffers concurrently. Fewer than three
+    // blocks can start successfully but eventually stalls the whole pipeline.
+    const auto vbBlocks = static_cast<uint32_t>(config.queueDepth < 3 ? 3 : config.queueDepth);
+    if (sys != nullptr && rawChannel_ < static_cast<int>(sys->vb_pool_num)) {
+        sys->vb_pool[rawChannel_].vb_blk_num = vbBlocks;
+    }
     APP_PARAM_VPSS_CFG_T* vpss = app_ipcam_Vpss_Param_Get();
     if (vpss != nullptr && vpss->u32GrpCnt > 0) {
         auto& rate = vpss->astVpssGrpCfg[0].astVpssChnAttr[rawChannel_].stFrameRate;
@@ -76,6 +84,9 @@ bool CameraBackend::open(const CameraConfig& config, int gop, Error& error) {
     if (rc != 0) {
         setError(error, ErrorCode::BackendError, "setupVideo failed");
         return false;
+    }
+    if (sys != nullptr && channel_ < static_cast<int>(sys->vb_pool_num)) {
+        sys->vb_pool[channel_].vb_blk_num = vbBlocks;
     }
     if (vpss != nullptr && vpss->u32GrpCnt > 0) {
         auto& rate = vpss->astVpssGrpCfg[0].astVpssChnAttr[channel_].stFrameRate;

@@ -1,0 +1,69 @@
+#!/bin/sh
+
+NAME=recamera-onvif
+DAEMON=/usr/local/bin/recamera-onvif
+PIDFILE=/var/run/${NAME}.pid
+LOGFILE=/var/log/${NAME}.log
+
+is_running() {
+    [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null
+}
+
+stop_conflicting_services() {
+    # Do not stop sscma-supervisor: it is the app manager that selects the
+    # single camera owner.  These are the two stock services that can own it.
+    for service in /etc/init.d/[SK]91sscma-node /etc/init.d/[SK]03node-red; do
+        [ -x "$service" ] && "$service" stop >/dev/null 2>&1 || true
+    done
+}
+
+start() {
+    if is_running; then
+        echo "$NAME already running"
+        return 0
+    fi
+    stop_conflicting_services
+    "$DAEMON" >>"$LOGFILE" 2>&1 &
+    pid=$!
+    echo "$pid" >"$PIDFILE"
+    sleep 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+        rm -f "$PIDFILE"
+        echo "$NAME failed to start; see $LOGFILE"
+        return 1
+    fi
+    echo "$NAME started"
+}
+
+stop() {
+    if ! is_running; then
+        rm -f "$PIDFILE"
+        echo "$NAME is not running"
+        return 0
+    fi
+    pid=$(cat "$PIDFILE")
+    kill "$pid" 2>/dev/null || true
+    i=0
+    while [ "$i" -lt 16 ] && kill -0 "$pid" 2>/dev/null; do
+        sleep 0.5
+        i=$((i + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || true
+        sleep 1
+    fi
+    if kill -0 "$pid" 2>/dev/null; then
+        echo "$NAME failed to stop"
+        return 1
+    fi
+    rm -f "$PIDFILE"
+    echo "$NAME stopped"
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop && start ;;
+    status) is_running && echo "$NAME is running" || exit 1 ;;
+    *) echo "Usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac

@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cctype>
 #include <condition_variable>
 #include <cstdlib>
 #include <cstdio>
@@ -179,11 +180,27 @@ bool sendAll(int fd, const std::string& data) {
 }
 
 std::size_t contentLength(const std::string& request) {
-    auto pos = request.find("Content-Length:");
-    if (pos == std::string::npos) pos = request.find("content-length:");
-    if (pos == std::string::npos) return 0;
-    pos = request.find(':', pos);
-    return pos == std::string::npos ? 0 : std::strtoul(request.c_str() + pos + 1, nullptr, 10);
+    // HTTP header names are case-insensitive.  In particular, Hikvision
+    // devices use "Content-length", which the original two-spelling check
+    // treated as an empty SOAP request.
+    const auto headersEnd = request.find("\r\n\r\n");
+    const auto headers = request.substr(0, headersEnd);
+    std::size_t lineStart = 0;
+    while (lineStart < headers.size()) {
+        const auto lineEnd = headers.find("\r\n", lineStart);
+        const auto line = headers.substr(lineStart, lineEnd == std::string::npos
+            ? std::string::npos : lineEnd - lineStart);
+        const auto colon = line.find(':');
+        if (colon != std::string::npos) {
+            std::string name = line.substr(0, colon);
+            for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            if (name == "content-length")
+                return std::strtoul(line.c_str() + colon + 1, nullptr, 10);
+        }
+        if (lineEnd == std::string::npos) break;
+        lineStart = lineEnd + 2;
+    }
+    return 0;
 }
 
 std::string requestPath(const std::string& request) {
@@ -196,15 +213,19 @@ std::string timeResponse() {
     std::time_t now = std::time(nullptr);
     std::tm utc{};
     gmtime_r(&now, &utc);
-    char date[256]{};
-    std::snprintf(date, sizeof(date),
-        "<tds:GetSystemDateAndTimeResponse><tds:SystemDateAndTime><tt:DateTimeType>NTP</tt:DateTimeType>"
-        "<tt:DaylightSavings>false</tt:DaylightSavings><tt:TimeZone><tt:TZ>UTC</tt:TZ></tt:TimeZone>"
-        "<tt:UTCDateTime><tt:Time><tt:Hour>%d</tt:Hour><tt:Minute>%d</tt:Minute><tt:Second>%d</tt:Second>"
-        "</tt:Time><tt:Date><tt:Year>%d</tt:Year><tt:Month>%d</tt:Month><tt:Day>%d</tt:Day></tt:Date>"
-        "</tt:UTCDateTime></tds:SystemDateAndTime></tds:GetSystemDateAndTimeResponse>",
-        utc.tm_hour, utc.tm_min, utc.tm_sec, utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday);
-    return envelope(date);
+    // The complete response is longer than 256 bytes.  A fixed buffer here
+    // silently truncated the XML halfway through UTCDateTime, so zeep (and
+    // Home Assistant) deserialized GetSystemDateAndTime as no usable value.
+    std::ostringstream date;
+    date << "<tds:GetSystemDateAndTimeResponse><tds:SystemDateAndTime>"
+         << "<tt:DateTimeType>NTP</tt:DateTimeType><tt:DaylightSavings>false</tt:DaylightSavings>"
+         << "<tt:TimeZone><tt:TZ>UTC</tt:TZ></tt:TimeZone><tt:UTCDateTime><tt:Time>"
+         << "<tt:Hour>" << utc.tm_hour << "</tt:Hour><tt:Minute>" << utc.tm_min
+         << "</tt:Minute><tt:Second>" << utc.tm_sec << "</tt:Second></tt:Time><tt:Date>"
+         << "<tt:Year>" << utc.tm_year + 1900 << "</tt:Year><tt:Month>" << utc.tm_mon + 1
+         << "</tt:Month><tt:Day>" << utc.tm_mday << "</tt:Day></tt:Date></tt:UTCDateTime>"
+         << "</tds:SystemDateAndTime></tds:GetSystemDateAndTimeResponse>";
+    return envelope(date.str());
 }
 
 }  // namespace
@@ -442,15 +463,25 @@ public:
         return envelope("<s:Fault><s:Reason><s:Text>Unsupported media request</s:Text></s:Reason></s:Fault>");
     }
 
-    std::string probeMatch(const std::string& relatesTo) const {
+    std::string probeMatch(const std::string& relatesTo, bool useAddressing2004) const {
         const auto uuid = "urn:uuid:" + config.deviceUuid;
         const auto xaddr = "http://" + config.address + ":" + std::to_string(config.port) + "/onvif/device_service";
-        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" "
-            "xmlns:a=\"http://www.w3.org/2005/08/addressing\" xmlns:d=\"http://schemas.xmlsoap.org/ws/2005/04/discovery\" "
-            "xmlns:dn=\"http://www.onvif.org/ver10/network/wsdl\"><s:Header><a:MessageID>urn:uuid:" + config.deviceUuid +
-            "-probe</a:MessageID><a:RelatesTo>" + xmlEscape(relatesTo) + "</a:RelatesTo><a:To>"
-            "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To><a:Action>"
-            "http://schemas.xmlsoap.org/ws/2005/04/discovery/ProbeMatches</a:Action></s:Header><s:Body><d:ProbeMatches>"
+        // Match the Probe's addressing revision.  ONVIF Discovery 1.0 and
+        // Home Assistant use 2004/08, whereas the original implementation's
+        // 2005/08 response is kept for NVRs that already use it.  Sending one
+        // coherent header set avoids duplicate WS-Addressing headers/EPRs.
+        const char* addressing = useAddressing2004
+            ? "http://schemas.xmlsoap.org/ws/2004/08/addressing"
+            : "http://www.w3.org/2005/08/addressing";
+        const char* anonymous = useAddressing2004
+            ? "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous"
+            : "http://www.w3.org/2005/08/addressing/anonymous";
+        return std::string("<?xml version=\"1.0\" encoding=\"UTF-8\"?><s:Envelope xmlns:s=\"http://www.w3.org/2003/05/soap-envelope\" ") +
+            "xmlns:a=\"" + addressing + "\" "
+            "xmlns:d=\"http://schemas.xmlsoap.org/ws/2005/04/discovery\" xmlns:dn=\"http://www.onvif.org/ver10/network/wsdl\">"
+            "<s:Header><a:MessageID>urn:uuid:" + config.deviceUuid + "-probe</a:MessageID><a:RelatesTo>" +
+            xmlEscape(relatesTo) + "</a:RelatesTo><a:To>" + anonymous + "</a:To>"
+            "<a:Action>http://schemas.xmlsoap.org/ws/2005/04/discovery/ProbeMatches</a:Action></s:Header><s:Body><d:ProbeMatches>"
             "<d:ProbeMatch><a:EndpointReference><a:Address>" + uuid + "</a:Address></a:EndpointReference>"
             "<d:Types>dn:NetworkVideoTransmitter</d:Types><d:Scopes>onvif://www.onvif.org/type/video_encoder "
             "onvif://www.onvif.org/name/" + xmlEscape(config.deviceName) + " onvif://www.onvif.org/hardware/" +
@@ -470,7 +501,10 @@ public:
             if (request.find("Probe") == std::string::npos) continue;
             std::string messageId;
             extractElement(request, "MessageID", messageId);
-            const auto response = probeMatch(messageId.empty() ? "urn:uuid:unknown" : messageId);
+            const bool useAddressing2004 = request.find(
+                "http://schemas.xmlsoap.org/ws/2004/08/addressing") != std::string::npos;
+            const auto response = probeMatch(messageId.empty() ? "urn:uuid:unknown" : messageId,
+                                             useAddressing2004);
             sendto(discoveryFd, response.data(), response.size(), 0,
                    reinterpret_cast<sockaddr*>(&peer), length);
             std::lock_guard<std::mutex> lock(mutex);

@@ -1,0 +1,36 @@
+#!/bin/sh
+
+APP_DIR=/userdata/face_emotion
+APP=$APP_DIR/recamera_face_emotion_webrtc
+PIDFILE=/run/face-emotion.pid
+LOG=/userdata/face_emotion/face-emotion.log
+LIBS="$APP_DIR:/mnt/system/usr/lib:/mnt/system/usr/lib/3rd:/mnt/system/lib"
+
+start() {
+    if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        echo "face-emotion is already running"
+        return 0
+    fi
+    echo "Starting face-emotion"
+    cd "$APP_DIR" || return 1
+    LD_LIBRARY_PATH="$LIBS" start-stop-daemon -S -q -m -b -p "$PIDFILE" -x "$APP" -- \
+        yolo-face_mixfp16.cvimodel \
+        age_gender_race_bf16.cvimodel \
+        emotion_bf16.cvimodel 0.70 8081 8765
+}
+
+stop() {
+    echo "Stopping face-emotion"
+    start-stop-daemon -K -q -p "$PIDFILE" -R TERM/5/KILL/2
+    rm -f "$PIDFILE"
+}
+
+case "${1:-}" in
+    start) start >>"$LOG" 2>&1 ;;
+    stop) stop >>"$LOG" 2>&1 ;;
+    restart) stop; start >>"$LOG" 2>&1 ;;
+    status)
+        [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
+        ;;
+    *) echo "Usage: $0 {start|stop|restart|status}"; exit 2 ;;
+esac

@@ -43,6 +43,93 @@ install/
 └── share/recamera-sdk/{examples,toolchain,licenses}/
 ```
 
+## Deploying the ONVIF/Hikvision NVR service on reCamera
+
+`examples/camera_onvif_rtsp` is the deployable Camera → H.264 RTSP → ONVIF
+application. It listens on ONVIF HTTP `8000`, WS-Discovery UDP `3702`, and
+RTSP `8554` at `/onvif`. Change the example's RTSP/ONVIF credentials before
+building; never commit production credentials.
+
+### Compatibility build for older firmware
+
+Some production firmware versions lack the `CVI_NN_*` symbols used by newer
+AI components. For an ONVIF/RTSP-only deployment, build the compatibility
+variant so AI, audio, OSD, and fill-light modules cannot prevent startup:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DRECAMERA_ENABLE_EXTENDED_APIS=OFF
+cmake --build build -j
+```
+
+Deploy these artifacts:
+
+```text
+build/examples/camera_onvif_rtsp/recamera_camera_onvif_rtsp
+build/librecamera_sdk.so.0.1.0
+build/third_party/cvi_rtsp/libcvi_rtsp.so
+```
+
+The supplied `libcvi_rtsp.so` splits Annex-B H.264 VENC access units into
+individual SPS, PPS, and IDR NALs before passing them to Live555. Without it,
+strict NVR clients can report `non-existing PPS`, unknown video dimensions,
+blank preview, or snapshot failure.
+
+### Upload, backup, and start
+
+Use a staging directory and make a timestamped backup before stopping the
+service. Never replace `/mnt/system/usr/lib/libcvi_rtsp.so`: it belongs to the
+firmware. Put the fixed library in `/root/libcvi_rtsp.so` and load it first.
+
+```bash
+ssh root@DEVICE_IP 'mkdir -p /root/onvif-stage'
+scp build/examples/camera_onvif_rtsp/recamera_camera_onvif_rtsp \
+    build/librecamera_sdk.so.0.1.0 \
+    build/third_party/cvi_rtsp/libcvi_rtsp.so \
+    root@DEVICE_IP:/root/onvif-stage/
+
+ssh root@DEVICE_IP
+stamp=$(date +%Y%m%d%H%M%S)
+pid=$(pidof recamera_camera_onvif_rtsp) && kill -TERM "$pid"
+sleep 3
+mv /root/recamera_camera_onvif_rtsp /root/recamera_camera_onvif_rtsp.bak-$stamp
+mv /root/librecamera_sdk.so.0 /root/librecamera_sdk.so.0.bak-$stamp
+[ ! -e /root/libcvi_rtsp.so ] || mv /root/libcvi_rtsp.so /root/libcvi_rtsp.so.bak-$stamp
+mv /root/onvif-stage/recamera_camera_onvif_rtsp /root/
+mv /root/onvif-stage/librecamera_sdk.so.0.1.0 /root/librecamera_sdk.so.0
+ln -sfn librecamera_sdk.so.0 /root/librecamera_sdk.so
+mv /root/onvif-stage/libcvi_rtsp.so /root/
+chmod 700 /root/recamera_camera_onvif_rtsp /root/librecamera_sdk.so.0 /root/libcvi_rtsp.so
+
+LD_LIBRARY_PATH=/root:/mnt/system/usr/lib:/mnt/system/usr/lib/3rd:/mnt/system/lib \
+  nohup /root/recamera_camera_onvif_rtsp \
+  >>/userdata/recamera_sdk/onvif-sdk.log 2>&1 </dev/null &
+```
+
+Do not omit `LD_LIBRARY_PATH`: firmware `libini.so` is under
+`/mnt/system/usr/lib/3rd` and `libcviruntime.so` is under `/mnt/system/lib`.
+After startup, verify both listeners and the loaded libraries:
+
+```bash
+pid=$(pidof recamera_camera_onvif_rtsp)
+ss -ltnup | grep -E ':(8000|8554|3702)'
+grep -E 'librecamera_sdk|libcvi_rtsp' /proc/$pid/maps
+tail -n 50 /userdata/recamera_sdk/onvif-sdk.log
+```
+
+For a Hikvision ONVIF channel, use management port `8000` and matching ONVIF
+credentials. The following read-only checks confirm that its proxy channel is
+online and snapshot output is a JPEG:
+
+```bash
+curl --digest -u 'NVR_USER:NVR_PASSWORD' \
+  http://NVR_IP/ISAPI/ContentMgmt/InputProxy/channels/CHANNEL_ID/status
+curl --digest -u 'NVR_USER:NVR_PASSWORD' \
+  -o snapshot.jpg http://NVR_IP/ISAPI/Streaming/channels/PROXY_CHANNEL_ID/picture
+file snapshot.jpg
+```
+
 An independent application can consume only the installed package:
 
 ```cmake
