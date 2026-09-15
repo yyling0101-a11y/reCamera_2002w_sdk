@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <string>
 
@@ -27,6 +28,8 @@ public:
 private:
     static void onConnect(const char* ip, void* arg);
     static void onDisconnect(const char* ip, void* arg);
+    static void onTcpSendError(int socket, int error, unsigned consecutive,
+                               int disconnected, void* arg);
 
     bool createServerLocked(Error& error);
     void destroyServerLocked() noexcept;
@@ -46,6 +49,8 @@ private:
     CVI_RTSP_STATE_LISTENER listener_{};
     bool running_ = false;
     unsigned consecutiveHealthEvents_ = 0;
+    std::atomic<unsigned> pendingTcpSendErrors_{0};
+    std::atomic<unsigned> pendingStalledDisconnects_{0};
     StreamStatus status_;
 };
 

@@ -71,6 +71,7 @@ int CVI_RTSP_Create(CVI_RTSP_CTX **ctx, CVI_RTSP_CONFIG *config)
     (*ctx)->authDatabase = (void *)authDatabase;
 
     memcpy(&((*ctx)->config), config, sizeof(CVI_RTSP_CONFIG));
+    CVI_RTSP_ConfigureTcpSendRecovery(*ctx);
 
     return 0;
 }
@@ -83,6 +84,7 @@ int CVI_RTSP_Destroy(CVI_RTSP_CTX **ctx)
         return -1;
     }
 
+    CVI_RTSP_ClearTcpSendRecovery(*ctx);
     CVI_RTSP *server = static_cast<CVI_RTSP *>((*ctx)->server);
     UsageEnvironment *env = static_cast<UsageEnvironment *>((*ctx)->env);
     CVI_TaskScheduler *scheduler = static_cast<CVI_TaskScheduler *>((*ctx)->scheduler);

@@ -69,6 +69,10 @@ int CVI_RTSP_DestroySession(CVI_RTSP_CTX *ctx, CVI_RTSP_SESSION *session);
  */
 int CVI_RTSP_SetListener(CVI_RTSP_CTX *ctx, CVI_RTSP_STATE_LISTENER *listener);
 
+/* Internal transport hook used by the bundled live555 adapter. */
+void CVI_RTSP_ConfigureTcpSendRecovery(CVI_RTSP_CTX *ctx);
+void CVI_RTSP_ClearTcpSendRecovery(CVI_RTSP_CTX *ctx);
+
 #ifdef __cplusplus
 }
 #endif

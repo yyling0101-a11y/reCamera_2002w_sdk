@@ -3,7 +3,7 @@
 # compliant H.264 fmtp/sprop-parameter-sets generation.
 set(_cvi_media_sdk "${SG200X_SDK_PATH}/install/soc_sg2002_recamera_emmc/tpu_musl_riscv64/cvitek_tpu_sdk")
 
-add_library(cvi_rtsp SHARED src/api.cpp)
+add_library(cvi_rtsp SHARED src/api.cpp src/tcp_send_recovery.cpp)
 add_library(recamera::cvi_rtsp ALIAS cvi_rtsp)
 set_target_properties(cvi_rtsp PROPERTIES
     OUTPUT_NAME cvi_rtsp
@@ -28,6 +28,10 @@ target_link_libraries(cvi_rtsp PRIVATE
     "${_cvi_media_sdk}/lib/libgroupsock.a"
     pthread
 )
+# The vendor live555 is supplied as a static archive. Interpose its send(2)
+# calls so repeated RTP-over-TCP backpressure can be surfaced and the stale
+# client socket can be shut down instead of remaining wedged indefinitely.
+target_link_options(cvi_rtsp PRIVATE "-Wl,--wrap=send")
 
 install(TARGETS cvi_rtsp
     EXPORT recamera-sdk-targets

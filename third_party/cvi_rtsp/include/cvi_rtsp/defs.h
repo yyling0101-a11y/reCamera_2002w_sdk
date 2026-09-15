@@ -30,6 +30,12 @@ typedef struct {
     char authRealm[64];
     char username[64];
     char password[64];
+
+    /* RTP-over-RTSP/TCP backpressure reporting and recovery. */
+    unsigned tcpSendFailuresBeforeDisconnect;
+    void (*onTcpSendError)(int socket, int error, unsigned consecutive,
+                           int disconnected, void *arg);
+    void *tcpSendErrorArg;
 } CVI_RTSP_CONFIG;
 
 typedef struct {

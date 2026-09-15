@@ -29,6 +29,7 @@ bool RtspBackend::start(const RtspConfig& config, Error& error) {
     }
     if (config.port == 0 || config.gop <= 0 || config.slowWriteThresholdMs <= 0.0 ||
         config.errorsBeforeIdr == 0 || config.errorsBeforeRestart < config.errorsBeforeIdr ||
+        config.tcpSendFailuresBeforeDisconnect == 0 ||
         (config.authenticationEnabled && (config.username.empty() || config.password.empty())) ||
         config.username.size() >= sizeof(CVI_RTSP_CONFIG{}.username) ||
         config.password.size() >= sizeof(CVI_RTSP_CONFIG{}.password) ||
@@ -45,8 +46,13 @@ bool RtspBackend::start(const RtspConfig& config, Error& error) {
 }
 
 bool RtspBackend::createServerLocked(Error& error) {
+    pendingTcpSendErrors_.store(0, std::memory_order_relaxed);
+    pendingStalledDisconnects_.store(0, std::memory_order_relaxed);
     CVI_RTSP_CONFIG serverConfig{};
     serverConfig.port = config_.port;
+    serverConfig.tcpSendFailuresBeforeDisconnect = config_.tcpSendFailuresBeforeDisconnect;
+    serverConfig.onTcpSendError = &RtspBackend::onTcpSendError;
+    serverConfig.tcpSendErrorArg = this;
     serverConfig.authEnabled = config_.authenticationEnabled ? 1 : 0;
     if (config_.authenticationEnabled) {
         std::snprintf(serverConfig.authRealm, sizeof(serverConfig.authRealm), "%s", config_.realm.c_str());
@@ -176,6 +182,14 @@ void RtspBackend::onDisconnect(const char* ip, void* arg) {
     std::fprintf(stderr, "[recamera][INFO] RTSP client disconnected: %s\n", ip ? ip : "unknown");
 }
 
+void RtspBackend::onTcpSendError(int, int, unsigned, int disconnected, void* arg) {
+    auto* self = static_cast<RtspBackend*>(arg);
+    if (self == nullptr) return;
+    self->pendingTcpSendErrors_.fetch_add(1, std::memory_order_relaxed);
+    if (disconnected != 0)
+        self->pendingStalledDisconnects_.fetch_add(1, std::memory_order_relaxed);
+}
+
 bool RtspBackend::restartServerLocked() {
     {
         std::lock_guard<std::mutex> lock(statusMutex_);
@@ -272,25 +286,34 @@ int RtspBackend::writeData(CVI_RTSP_DATA& data) {
     const int rc = CVI_RTSP_WriteFrame(server_, session_->video, &data);
     const auto end = std::chrono::steady_clock::now();
     const double latency = std::chrono::duration<double, std::milli>(end - begin).count();
-    const bool writeError = rc != CVI_SUCCESS;
+    const unsigned tcpSendErrors = pendingTcpSendErrors_.exchange(0, std::memory_order_relaxed);
+    const unsigned stalledDisconnects =
+        pendingStalledDisconnects_.exchange(0, std::memory_order_relaxed);
+    const bool writeError = rc != CVI_SUCCESS || tcpSendErrors != 0;
     const bool slowWrite = latency > config_.slowWriteThresholdMs;
     {
         std::lock_guard<std::mutex> lock(statusMutex_);
         status_.lastWriteLatencyMs = latency;
         status_.maxWriteLatencyMs = std::max(status_.maxWriteLatencyMs, latency);
         status_.lastFrameTimestamp = data.timestamp;
-        if (writeError) ++status_.writeErrors;
+        if (rc != CVI_SUCCESS) ++status_.writeErrors;
         else ++status_.framesSent;
+        status_.tcpSendErrors += tcpSendErrors;
+        status_.stalledClientsDisconnected += stalledDisconnects;
         if (slowWrite) ++status_.slowWrites;
     }
     if (slowWrite) {
         std::fprintf(stderr, "[recamera][WARN] CVI_RTSP_WriteFrame took %.2f ms\n", latency);
     }
-    if (writeError) {
+    if (rc != CVI_SUCCESS) {
         std::fprintf(stderr, "[recamera][ERROR] CVI_RTSP_WriteFrame failed, CVI=%#x\n", rc);
     }
+    if (tcpSendErrors != 0) {
+        std::fprintf(stderr, "[recamera][WARN] observed %u RTSP/TCP send failures%s\n",
+                     tcpSendErrors, stalledDisconnects != 0 ? "; stalled client disconnected" : "");
+    }
     noteHealthEventLocked(writeError, slowWrite);
-    return rc;
+    return writeError ? CVI_FAILURE : rc;
 }
 
 }  // namespace recamera::sg200x

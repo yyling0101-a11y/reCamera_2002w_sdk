@@ -285,11 +285,17 @@ pipeline. `lastError()` returns a stable SDK error rather than a raw CVI code.
 
 ## Diagnostics and recovery
 
-`streamStatus()` reports sent frames, write errors, slow writes, latency,
-clients, connection totals, IDR requests, restarts, and recovery level.
+`streamStatus()` reports sent frames, write errors, RTSP/TCP send errors,
+stalled-client disconnects, slow writes, latency, clients, connection totals,
+IDR requests, restarts, and recovery level.
 Writes slower than 100 ms are warnings by default. Consecutive unhealthy writes
 first request an IDR; only sustained failures restart the RTSP service. This is
 decoder resynchronization, not RTP retransmission.
+
+For RTSP-over-TCP, a burst of `EAGAIN` send failures is treated as client
+backpressure. After eight failures by default, the stalled client socket is
+shut down so live555 cleans up the session and the client can reconnect. The
+threshold is configurable with `tcpSendFailuresBeforeDisconnect`.
 
 New client connections request an IDR by default. Recovery thresholds and GOP
 are configurable in `RtspConfig`.

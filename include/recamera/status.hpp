@@ -18,6 +18,8 @@ struct StreamStatus
     std::uint64_t framesSent = 0;
     std::uint64_t writeErrors = 0;
     std::uint64_t slowWrites = 0;
+    std::uint64_t tcpSendErrors = 0;
+    std::uint64_t stalledClientsDisconnected = 0;
     std::uint64_t lastFrameTimestamp = 0;
     double lastWriteLatencyMs = 0.0;
     double maxWriteLatencyMs = 0.0;

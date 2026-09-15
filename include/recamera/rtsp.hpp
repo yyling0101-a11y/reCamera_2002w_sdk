@@ -21,6 +21,7 @@ struct RtspConfig
     double slowWriteThresholdMs = 100.0;
     unsigned errorsBeforeIdr = 3;
     unsigned errorsBeforeRestart = 12;
+    unsigned tcpSendFailuresBeforeDisconnect = 8;
     bool authenticationEnabled = false;
     std::string username;
     std::string password;
